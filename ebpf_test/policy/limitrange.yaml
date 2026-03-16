@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: limitrange-pg
+  namespace: playground
+spec:
+  limits:
+  - type: Container           # 또는 Pod/Container, 상황에 따라 선택
+    default:                  # 기본 limit
+      cpu: 500m
+    defaultRequest:           # 기본 request
+      cpu: 500m
+    max:                      # limit의 최대
+      cpu: "1"
+    min:                      # request의 최소
+      cpu: 100m
+
