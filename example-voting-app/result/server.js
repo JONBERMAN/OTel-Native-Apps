@@ -1,3 +1,4 @@
+require('./tracing.js');
 var express = require('express'),
     async = require('async'),
     { Pool } = require('pg'),

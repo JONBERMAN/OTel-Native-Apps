@@ -1,5 +1,6 @@
 using System;
 using System.Data.Common;
+using System.Diagnostics; // ActivitySource를 사용하기 위해 추가
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -8,12 +9,30 @@ using Newtonsoft.Json;
 using Npgsql;
 using StackExchange.Redis;
 
+using OpenTelemetry;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+
 namespace Worker
 {
     public class Program
     {
+        // 1. 커스텀 트레이싱을 위한 ActivitySource를 전역으로 선언합니다.
+        private static readonly ActivitySource ActivitySource = new ActivitySource("Worker.Program");
+
         public static int Main(string[] args)
         {
+            // 2. OpenTelemetry Tracer Provider 초기화 (앱 시작 시 한 번만 실행)
+            using var tracerProvider = Sdk.CreateTracerProviderBuilder()
+                .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("worker-app"))
+                .AddSource("Worker.Program") // 위에서 선언한 ActivitySource 이름과 반드시 일치해야 합니다.
+                .AddOtlpExporter(opt =>
+                {
+                    // 실제 OTel Collector 주소로 변경해주세요. (HTTP: 4318, gRPC: 4317)
+                    opt.Endpoint = new Uri("http://<otel-collector-url>:4318/v1/traces");
+                })
+                .Build();
+
             try
             {
                 var pgsql = OpenDbConnection("Server=db;Username=postgres;Password=postgres;");
@@ -41,17 +60,27 @@ namespace Worker
                     if (json != null)
                     {
                         var vote = JsonConvert.DeserializeAnonymousType(json, definition);
-                        Console.WriteLine($"Processing vote for '{vote.vote}' by '{vote.voter_id}'");
-                        // Reconnect DB if down
-                        if (!pgsql.State.Equals(System.Data.ConnectionState.Open))
+                        
+                        // 3. 커스텀 스팬(Span) 시작: 이 블록 안에서 일어나는 일이 하나의 트레이스 구간으로 묶입니다.
+                        using (var activity = ActivitySource.StartActivity("ProcessVote"))
                         {
-                            Console.WriteLine("Reconnecting DB");
-                            pgsql = OpenDbConnection("Server=db;Username=postgres;Password=postgres;");
-                        }
-                        else
-                        { // Normal +1 vote requested
-                            UpdateVote(pgsql, vote.voter_id, vote.vote);
-                        }
+                            // 4. 커스텀 속성(Attribute/Tag) 추가: 투표자 ID와 어떤 항목에 투표했는지 기록합니다.
+                            activity?.SetTag("app.voter_id", vote.voter_id);
+                            activity?.SetTag("app.vote_option", vote.vote);
+
+                            Console.WriteLine($"Processing vote for '{vote.vote}' by '{vote.voter_id}'");
+                            
+                            // Reconnect DB if down
+                            if (!pgsql.State.Equals(System.Data.ConnectionState.Open))
+                            {
+                                Console.WriteLine("Reconnecting DB");
+                                pgsql = OpenDbConnection("Server=db;Username=postgres;Password=postgres;");
+                            }
+                            else
+                            { // Normal +1 vote requested
+                                UpdateVote(pgsql, vote.voter_id, vote.vote);
+                            }
+                        } // 여기서 using 블록이 끝나며 자동으로 스팬이 종료되고 Collector로 전송됩니다.
                     }
                     else
                     {
