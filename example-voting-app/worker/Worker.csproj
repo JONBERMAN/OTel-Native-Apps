@@ -9,6 +9,9 @@
     <PackageReference Include="StackExchange.Redis" Version="2.2.4" />
     <PackageReference Include="Npgsql" Version="4.1.9" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.*" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.*" />  
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.*" />
   </ItemGroup>
 
 </Project>
